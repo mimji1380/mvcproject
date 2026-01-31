@@ -2,35 +2,48 @@ const express = require('express');
 const cors = require('cors');
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 1936;
-const DB_PATH = path.join(__dirname, 'data', 'blog.db');
 
-// Middleware
+const DB_DIR = path.join(__dirname, 'data');
+const DB_PATH = path.join(DB_DIR, 'blog.db');
+
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
+function ensureDbDir() {
+  if (!fs.existsSync(DB_DIR)) {
+    fs.mkdirSync(DB_DIR, { recursive: true });
+  }
+}
+
 function initializeDatabase() {
   return new Promise((resolve, reject) => {
-    const db = new sqlite3.Database(DB_PATH, (err) => {
-      if (err) {
-        console.error('❌ Error opening database:', err.message);
-        return reject(err);
-      }
-      console.log('✅ Connected to SQLite database');
+    ensureDbDir();
 
-      db.run(`CREATE TABLE IF NOT EXISTS posts (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        title TEXT NOT NULL,
-        content TEXT NOT NULL
-      )`, (err2) => {
-        if (err2) {
-          console.error('❌ Error creating table:', err2.message);
-          return reject(err2);
-        }
-        console.log('✅ Posts table ready');
+    const db = new sqlite3.Database(DB_PATH, (err) => {
+      if (err) return reject(err);
+
+      db.run(`
+        CREATE TABLE IF NOT EXISTS posts (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          title TEXT NOT NULL,
+          content TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+      `, (err2) => {
+        if (err2) return reject(err2);
+
+        db.run(`ALTER TABLE posts ADD COLUMN created_at TEXT`, () => {});
+        db.run(`ALTER TABLE posts ADD COLUMN updated_at TEXT`, () => {});
+
+        db.run(`UPDATE posts SET created_at = COALESCE(created_at, datetime('now'))`);
+        db.run(`UPDATE posts SET updated_at = COALESCE(updated_at, created_at)`);
+
         resolve(db);
       });
     });
@@ -38,74 +51,119 @@ function initializeDatabase() {
 }
 
 let db;
-app.get('/', (req, res) => {
-    res.send('Hello from Node.js app');
-  });
 
-// GET all posts
+/* GET all */
 app.get('/api/posts', (req, res) => {
-  db.all('SELECT * FROM posts ORDER BY id DESC', [], (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json(rows);
-  });
+  db.all(
+    `SELECT * FROM posts ORDER BY id DESC`,
+    [],
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json(rows);
+    }
+  );
 });
 
-// GET post by id
+/* GET by id */
 app.get('/api/posts/:id', (req, res) => {
-  const id = req.params.id;
-  db.get('SELECT * FROM posts WHERE id = ?', [id], (err, row) => {
+  const id = Number(req.params.id);
+
+  if (!Number.isFinite(id)) {
+    return res.status(400).json({ error: 'Invalid id' });
+  }
+
+  db.get(`SELECT * FROM posts WHERE id = ?`, [id], (err, row) => {
     if (err) return res.status(500).json({ error: err.message });
-    if (!row) return res.status(404).json({ error: 'Post not found' });
+    if (!row) return res.status(404).json({ error: 'Not found' });
+
     res.json(row);
   });
 });
 
-// CREATE post
+/* CREATE */
 app.post('/api/posts', (req, res) => {
   const { title, content } = req.body;
+
   if (!title?.trim() || !content?.trim()) {
-    return res.status(400).json({ error: 'Title and content are required' });
+    return res.status(400).json({ error: 'Title and content required' });
   }
-  db.run('INSERT INTO posts (title, content) VALUES (?, ?)', [title, content], function (err) {
-    if (err) return res.status(500).json({ error: err.message });
-    res.status(201).json({ id: this.lastID, title, content });
-  });
+
+  db.run(
+    `INSERT INTO posts (title, content) VALUES (?, ?)`,
+    [title.trim(), content.trim()],
+    function (err) {
+      if (err) return res.status(500).json({ error: err.message });
+
+      db.get(
+        `SELECT * FROM posts WHERE id = ?`,
+        [this.lastID],
+        (e2, row) => {
+          if (e2) return res.status(500).json({ error: e2.message });
+          res.status(201).json(row);
+        }
+      );
+    }
+  );
 });
 
-// UPDATE post
+/* UPDATE */
 app.put('/api/posts/:id', (req, res) => {
-  const id = req.params.id;
+  const id = Number(req.params.id);
   const { title, content } = req.body;
 
-  if (!title?.trim() || !content?.trim()) {
-    return res.status(400).json({ error: 'Title and content are required' });
+  if (!Number.isFinite(id)) {
+    return res.status(400).json({ error: 'Invalid id' });
   }
 
-  db.run('UPDATE posts SET title = ?, content = ? WHERE id = ?', [title, content, id], function (err) {
-    if (err) return res.status(500).json({ error: err.message });
-    if (this.changes === 0) return res.status(404).json({ error: 'Post not found' });
-    res.json({ id, title, content });
-  });
+  if (!title?.trim() || !content?.trim()) {
+    return res.status(400).json({ error: 'Title and content required' });
+  }
+
+  db.run(
+    `
+    UPDATE posts
+    SET title = ?, content = ?, updated_at = datetime('now')
+    WHERE id = ?
+    `,
+    [title.trim(), content.trim(), id],
+    function (err) {
+      if (err) return res.status(500).json({ error: err.message });
+      if (!this.changes) return res.status(404).json({ error: 'Not found' });
+
+      db.get(
+        `SELECT * FROM posts WHERE id = ?`,
+        [id],
+        (e2, row) => {
+          if (e2) return res.status(500).json({ error: e2.message });
+          res.json(row);
+        }
+      );
+    }
+  );
 });
 
-// DELETE post
+/* DELETE */
 app.delete('/api/posts/:id', (req, res) => {
-  const id = req.params.id;
-  db.run('DELETE FROM posts WHERE id = ?', [id], function (err) {
+  const id = Number(req.params.id);
+
+  if (!Number.isFinite(id)) {
+    return res.status(400).json({ error: 'Invalid id' });
+  }
+
+  db.run(`DELETE FROM posts WHERE id = ?`, [id], function (err) {
     if (err) return res.status(500).json({ error: err.message });
-    if (this.changes === 0) return res.status(404).json({ error: 'Post not found' });
-    res.json({ message: 'Post deleted successfully' });
+    if (!this.changes) return res.status(404).json({ error: 'Not found' });
+
+    res.json({ success: true });
   });
 });
 
-// API 404
+/* API 404 */
 app.use('/api', (req, res) => {
-  res.status(404).json({ error: 'API endpoint not found' });
+  res.status(404).json({ error: 'Not found' });
 });
 
-// Optional SPA fallback (only if you have a single-page client)
-// If you don't want it, remove this block.
-// Express 5 safe fallback (avoid app.get('*') which can break path-to-regexp)
+/* SPA */
 app.get(/^(?!\/api).*/, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
@@ -115,31 +173,17 @@ async function startServer() {
     db = await initializeDatabase();
 
     app.listen(PORT, () => {
-      console.log(`🚀 Blog MVC REST API Server running on http://localhost:${PORT}`);
-      console.log(`📌 API endpoints:`);
-      console.log(`   GET    /api/posts`);
-      console.log(`   GET    /api/posts/:id`);
-      console.log(`   POST   /api/posts`);
-      console.log(`   PUT    /api/posts/:id`);
-      console.log(`   DELETE /api/posts/:id`);
+      console.log(`Server running on :${PORT}`);
     });
-  } catch (error) {
-    console.error('Failed to start server:', error);
+  } catch (err) {
+    console.error(err);
     process.exit(1);
   }
 }
 
 process.on('SIGINT', () => {
-  console.log('\n🛑 Shutting down server...');
-  if (db) {
-    db.close((err) => {
-      if (err) console.error('Error closing database:', err);
-      else console.log('📊 Database connection closed');
-      process.exit(0);
-    });
-  } else {
-    process.exit(0);
-  }
+  if (db) db.close();
+  process.exit(0);
 });
 
 startServer();
