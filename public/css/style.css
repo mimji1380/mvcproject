@@ -796,3 +796,97 @@ body {
 .btn-secondary:hover {
   background-color: #475569;
 }
+
+
+
+/* ===============================
+   UI Enhancement v2
+   =============================== */
+
+/* Softer background */
+body {
+  background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
+}
+
+/* Glass effect cards */
+.form-container,
+.post-card,
+.loading-indicator {
+  backdrop-filter: blur(10px);
+  background: rgba(255, 255, 255, 0.9);
+}
+
+/* Header glow */
+.app-header {
+  position: relative;
+  overflow: hidden;
+}
+
+.app-header::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    circle at top,
+    rgba(255,255,255,0.15),
+    transparent 70%
+  );
+}
+
+/* Modern buttons */
+.btn {
+  border-radius: 10px;
+  letter-spacing: 0.3px;
+}
+
+.btn-primary {
+  background: linear-gradient(
+    135deg,
+    var(--primary-color),
+    var(--primary-hover)
+  );
+}
+
+/* Card accent */
+.post-card {
+  border-left: 4px solid var(--primary-color);
+}
+
+/* Hover lift */
+.post-card:hover {
+  transform: translateY(-4px) scale(1.01);
+}
+
+/* Better inputs */
+.form-group input,
+.form-group textarea {
+  background: #f9fafb;
+}
+
+.form-group input:focus,
+.form-group textarea:focus {
+  background: white;
+}
+
+/* Section spacing */
+.form-section,
+.posts-section {
+  padding: 1rem 0;
+}
+
+/* Footer polish */
+.app-footer {
+  background: linear-gradient(
+    180deg,
+    #ffffff,
+    #f8fafc
+  );
+}
+
+/* Soft shadows */
+.post-card,
+.form-container {
+  box-shadow:
+    0 4px 20px rgba(0,0,0,0.05),
+    0 1px 3px rgba(0,0,0,0.08);
+}
