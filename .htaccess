@@ -1,0 +1,12 @@
+# Options -Indexes
+# RewriteEngine On
+
+# # ✅ Bypass proxy for robots.txt
+# RewriteCond %{REQUEST_URI} ^/robots\.txt$ [NC]
+# RewriteRule ^ - [L]
+
+
+# DO NOT REMOVE. PARSWEBSERVER DEVELOPER CONFIGURATION BEGIN
+RewriteEngine On
+RewriteRule ^/?(.*)$ http://127.0.0.1:1936/$1 [P,L]
+# DO NOT REMOVE. PARSWEBSERVER DEVELOPER CONFIGURATION END
